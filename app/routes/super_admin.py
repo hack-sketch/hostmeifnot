@@ -1,10 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response
 from pymongo import MongoClient
 from bson import ObjectId
 from datetime import datetime, timedelta
 from app.utils.auth import role_required, get_current_user
 from app.database import get_mongo_db
+import io
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
 
 router = APIRouter()
 
@@ -13,7 +16,7 @@ router = APIRouter()
 # ------------------------------------------
 @router.get("/attendance/campus/{campus_id}", dependencies=[Depends(role_required(["super_admin"]))])
 async def view_campus_attendance(campus_id: str, db: MongoClient = Depends(get_mongo_db)):
-    attendance_records = db["attendance"].find({"campus_id": campus_id})
+    attendance_records = db["attendance"].find({"punch_in_campus_id": campus_id})
 
     return [
         {
@@ -72,23 +75,69 @@ async def view_user_profile_attendance(user_id: str, db: MongoClient = Depends(g
     }
 
 # ------------------------------------------
-# ✅ DOWNLOAD ATTENDANCE REPORT
+# ✅ DOWNLOAD ATTENDANCE REPORT (CSV & PDF)
 # ------------------------------------------
 @router.get("/attendance/report")
 async def download_attendance_report(
-    campus_id: str, department: str, user_id: str = None, db: MongoClient = Depends(get_mongo_db)):
+    campus_id: str,
+    department: str,
+    user_id: str = None,
+    file_format: str = "csv",
+    db: MongoClient = Depends(get_mongo_db)
+):
+    """Download attendance report in CSV or PDF format"""
     query = {"campus_id": campus_id, "department": department}
     if user_id:
         query["employee_id"] = user_id
-    
+
     attendance = db["attendance"].find(query)
 
-    def generate_csv():
-        yield "Employee ID,Name,Punch In,Punch Out,Total Hours,Status\n"
+    if file_format.lower() == "csv":
+        def generate_csv():
+            yield "Employee ID,Name,Punch In,Punch Out,Total Hours,Status\n"
+            for record in attendance:
+                yield f"{record['employee_id']},{record.get('name')},{record.get('punch_in')},{record.get('punch_out')},{record.get('total_hours')},{record.get('status')}\n"
+
+        return StreamingResponse(
+            generate_csv(),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=attendance_report.csv"}
+        )
+
+    elif file_format.lower() == "pdf":
+        buffer = io.BytesIO()
+        pdf_canvas = canvas.Canvas(buffer, pagesize=letter)
+        pdf_canvas.setTitle("Attendance Report")
+
+        # PDF Header
+        pdf_canvas.setFont("Helvetica-Bold", 14)
+        pdf_canvas.drawString(100, 750, f"Attendance Report - {department} Campus ID: {campus_id}")
+
+        pdf_canvas.setFont("Helvetica", 10)
+        y_position = 720
+
+        # Table Headers
+        headers = ["Employee ID", "Name", "Punch In", "Punch Out", "Total Hours", "Status"]
+        pdf_canvas.drawString(50, y_position, " | ".join(headers))
+        y_position -= 20
+
+        # Table Data
         for record in attendance:
-            yield f"{record['employee_id']},{record.get('name')},{record.get('punch_in')},{record.get('punch_out')},{record.get('total_hours')},{record.get('status')}\n"
-    
-    return StreamingResponse(generate_csv(), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=attendance_report.csv"})
+            row = f"{record['employee_id']} | {record.get('name')} | {record.get('punch_in')} | {record.get('punch_out')} | {record.get('total_hours')} | {record.get('status')}"
+            pdf_canvas.drawString(50, y_position, row)
+            y_position -= 15
+            if y_position < 50:  # Create new page if the space runs out
+                pdf_canvas.showPage()
+                y_position = 750
+
+        pdf_canvas.save()
+        buffer.seek(0)
+
+        return Response(buffer.read(), media_type="application/pdf",
+                        headers={"Content-Disposition": "attachment; filename=attendance_report.pdf"})
+
+    else:
+        raise HTTPException(status_code=400, detail="Invalid file format. Use 'csv' or 'pdf'.")
 
 # ------------------------------------------
 # ✅ MANAGE CAMPUS (ADD, EDIT, DELETE)

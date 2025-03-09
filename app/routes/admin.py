@@ -32,7 +32,6 @@ async def get_attendance_for_campus(
         for record in attendance
     ]
 
-
 # ------------------------------------------
 # ✅ VIEW USERS (EMPLOYEES) FOR ASSIGNED CAMPUS
 # ------------------------------------------
@@ -57,7 +56,6 @@ async def get_users_for_campus(
         for user in users
     ]
 
-
 # ------------------------------------------
 # ✅ DOWNLOAD CAMPUS ATTENDANCE REPORT
 # ------------------------------------------
@@ -81,7 +79,6 @@ async def download_attendance_report_for_campus(
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=campus_attendance_report.csv"}
     )
-
 
 # ------------------------------------------
 # ✅ DAILY GEO TRACKING VIOLATION REPORT
@@ -110,7 +107,6 @@ async def daily_geofencing_data(
             "total_out_of_bounds_time": record.get("total_out_of_bounds_time")
         } for record in offenders
     ]
-
 
 # ------------------------------------------
 # ✅ WEEKLY GEO TRACKING VIOLATION REPORT
@@ -141,7 +137,6 @@ async def weekly_geofencing_report(
         } for record in offenders
     ]
 
-
 # ------------------------------------------
 # ✅ MANAGE LEAVE REQUESTS (Approve/Reject)
 # ------------------------------------------
@@ -158,7 +153,6 @@ async def get_leave_requests(
     ))
 
     return leave_requests
-
 
 @router.post("/leave-requests/{leave_id}/approve")
 async def approve_leave_request(
@@ -180,7 +174,6 @@ async def approve_leave_request(
     
     return {"message": "Leave request approved successfully"}
 
-
 @router.post("/leave-requests/{leave_id}/reject")
 async def reject_leave_request(
     leave_id: str, 
@@ -201,7 +194,6 @@ async def reject_leave_request(
     leave_collection.update_one({"_id": ObjectId(leave_id)}, {"$set": {"status": "Rejected", "rejection_reason": reason}})
     
     return {"message": f"Leave request rejected. Reason: {reason}"}
-
 
 # ------------------------------------------
 # ✅ ADMIN: ISSUE RED NOTICE FOR REPEATED GEOFENCE VIOLATIONS
