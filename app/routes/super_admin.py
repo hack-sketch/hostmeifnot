@@ -12,24 +12,33 @@ from reportlab.pdfgen import canvas
 router = APIRouter()
 
 # ------------------------------------------
-# ✅ VIEW ATTENDANCE (CAMPUS-WISE)
+# ✅ VIEW ATTENDANCE (CAMPUS-WISE) 
 # ------------------------------------------
 @router.get("/attendance/campus/{campus_id}", dependencies=[Depends(role_required(["super_admin"]))])
 async def view_campus_attendance(campus_id: str, db: MongoClient = Depends(get_mongo_db)):
-    attendance_records = db["attendance"].find({"punch_in_campus_id": campus_id})
+    try:
+        # ✅ Fetch attendance using correct field
+        attendance_records = list(db["attendance"].find({"punch_in_campus_id": campus_id}))
 
-    return [
-        {
-            "employee_id": record["user_id"],
-            "name": record.get("name"),
-            "profile_picture": record.get("profile_picture"),
-            "punch_in": record.get("punch_in"),
-            "punch_out": record.get("punch_out"),
-            "total_hours": record.get("total_hours"),
-            "status": record.get("status")
-        }
-        for record in attendance_records
-    ]
+        if not attendance_records:
+            raise HTTPException(status_code=404, detail="No attendance records found for this campus")
+
+        return [
+            {
+                "employee_id": record.get("employee_id"),  # ✅ FIXED: Correct field
+                "name": record.get("user_full_name", "Unknown"),  # ✅ FIXED: Correct field
+                "profile_picture": record.get("profile_picture", ""),  # ✅ Handle missing values
+                "punch_in": record.get("punch_in", "N/A"),
+                "punch_out": record.get("punch_out", "N/A"),
+                "total_hours": record.get("total_hours", 0),
+                "status": record.get("status", "Unknown")
+            }
+            for record in attendance_records
+        ]
+
+    except Exception as e:
+        print(f"Error fetching attendance: {e}")  # ✅ Logs error for debugging
+        raise HTTPException(status_code=500, detail="Internal Server Error. Check logs.")
 
 # ------------------------------------------
 # ✅ VIEW USERS (EMPLOYEES) (CAMPUS-WISE)
