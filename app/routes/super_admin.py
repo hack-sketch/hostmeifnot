@@ -12,17 +12,14 @@ router = APIRouter()
 # ✅ VIEW ATTENDANCE (CAMPUS-WISE)
 # ------------------------------------------
 @router.get("/attendance/campus/{campus_id}", dependencies=[Depends(role_required(["super_admin"]))])
-async def view_campus_attendance(
-    campus_id: str,
-    db: MongoClient = Depends(get_mongo_db)
-):
-    """Fetch attendance records for a specific campus"""
+async def view_campus_attendance(campus_id: str, db: MongoClient = Depends(get_mongo_db)):
     attendance_records = db["attendance"].find({"campus_id": campus_id})
 
     return [
         {
             "employee_id": record["user_id"],
             "name": record.get("name"),
+            "profile_picture": record.get("profile_picture"),
             "punch_in": record.get("punch_in"),
             "punch_out": record.get("punch_out"),
             "total_hours": record.get("total_hours"),
@@ -32,57 +29,168 @@ async def view_campus_attendance(
     ]
 
 # ------------------------------------------
-# ✅ DAILY GEOFENCING VIOLATION REPORT (CAMPUS-WISE)
+# ✅ VIEW USERS (EMPLOYEES) (CAMPUS-WISE)
 # ------------------------------------------
-@router.get("/attendance/daily-geofencing/campus/{campus_id}")
-async def daily_geofencing_report(
-    campus_id: str,
-    db: MongoClient = Depends(get_mongo_db)
-):
-    """Fetch geofencing violations for today for a specific campus"""
-    today = datetime.utcnow().date()
-
-    offenders = db["attendance"].find({
-        "date": today,
-        "total_out_of_bounds_time": {"$gt": 30},
-        "campus_id": campus_id
-    })
+@router.get("/users/campus/{campus_id}", dependencies=[Depends(role_required(["super_admin"]))])
+async def view_campus_users(campus_id: str, db: MongoClient = Depends(get_mongo_db)):
+    users = db["users"].find({"campus_id": campus_id})
 
     return [
         {
-            "employee_id": record["user_id"],
-            "name": record.get("name"),
-            "total_out_of_bounds_time": record.get("total_out_of_bounds_time")
+            "employee_id": user["employee_id"],
+            "name": user.get("full_name"),
+            "profile_picture": user.get("profile_picture"),
+            "email": user.get("email"),
+            "role": user.get("role"),
+            "campus": user.get("campus"),
+            "designation": user.get("designation")
         }
-        for record in offenders
+        for user in users
     ]
 
 # ------------------------------------------
-# ✅ WEEKLY GEOFENCING VIOLATION REPORT (CAMPUS-WISE)
+# ✅ VIEW SPECIFIC USER PROFILE & ATTENDANCE
 # ------------------------------------------
-@router.get("/attendance/weekly-geofencing/campus/{campus_id}")
-async def weekly_geofencing_report(
-    campus_id: str,
+@router.get("/user/{user_id}")
+async def view_user_profile_attendance(user_id: str, db: MongoClient = Depends(get_mongo_db)):
+    user = db["users"].find_one({"_id": ObjectId(user_id)})
+    attendance = db["attendance"].find({"employee_id": user_id})
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return {
+        "profile": {
+            "employee_id": user["employee_id"],
+            "name": user.get("full_name"),
+            "email": user.get("email"),
+            "profile_picture": user.get("profile_picture"),
+            "designation": user.get("designation"),
+            "campus": user.get("campus")
+        },
+        "attendance": list(attendance)
+    }
+
+# ------------------------------------------
+# ✅ DOWNLOAD ATTENDANCE REPORT
+# ------------------------------------------
+@router.get("/attendance/report")
+async def download_attendance_report(
+    campus_id: str, department: str, user_id: str = None, db: MongoClient = Depends(get_mongo_db)):
+    query = {"campus_id": campus_id, "department": department}
+    if user_id:
+        query["employee_id"] = user_id
+    
+    attendance = db["attendance"].find(query)
+
+    def generate_csv():
+        yield "Employee ID,Name,Punch In,Punch Out,Total Hours,Status\n"
+        for record in attendance:
+            yield f"{record['employee_id']},{record.get('name')},{record.get('punch_in')},{record.get('punch_out')},{record.get('total_hours')},{record.get('status')}\n"
+    
+    return StreamingResponse(generate_csv(), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=attendance_report.csv"})
+
+# ------------------------------------------
+# ✅ MANAGE CAMPUS (ADD, EDIT, DELETE)
+# ------------------------------------------
+@router.post("/campus/add")
+async def add_campus(name: str, description: str, latitude: float, longitude: float, db: MongoClient = Depends(get_mongo_db)):
+    new_campus = {"name": name, "description": description, "latitude": latitude, "longitude": longitude}
+    campus_id = db["campuses"].insert_one(new_campus).inserted_id
+    return {"message": "Campus added successfully", "campus_id": str(campus_id)}
+
+@router.put("/campus/edit/{campus_id}")
+async def edit_campus(campus_id: str, name: str = None, description: str = None, latitude: float = None, longitude: float = None, db: MongoClient = Depends(get_mongo_db)):
+    update_fields = {}
+    if name: update_fields["name"] = name
+    if description: update_fields["description"] = description
+    if latitude: update_fields["latitude"] = latitude
+    if longitude: update_fields["longitude"] = longitude
+    
+    db["campuses"].update_one({"_id": ObjectId(campus_id)}, {"$set": update_fields})
+    return {"message": "Campus updated successfully"}
+
+@router.delete("/campus/delete/{campus_id}")
+async def delete_campus(campus_id: str, db: MongoClient = Depends(get_mongo_db)):
+    db["campuses"].delete_one({"_id": ObjectId(campus_id)})
+    return {"message": "Campus deleted successfully"}
+
+# ------------------------------------------
+# ✅ GET USER BANK DETAILS
+# ------------------------------------------
+@router.get("/user/{user_id}/bank-details")
+async def get_user_bank_details(user_id: str, db: MongoClient = Depends(get_mongo_db)):
+    user = db["users"].find_one({"_id": ObjectId(user_id)})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {
+        "bank_name": user.get("bank_name"),
+        "account_number": user.get("account_number"),
+        "ifsc_code": user.get("ifsc_code"),
+        "pan_number": user.get("pan_number")
+    }
+
+# ------------------------------------------
+# ✅ VIEW INVENTORY REQUESTS (Super Admin)
+# ------------------------------------------
+@router.get("/inventory/requests", dependencies=[Depends(role_required(["super_admin"]))])
+async def get_inventory_requests(
     db: MongoClient = Depends(get_mongo_db)
 ):
-    """Fetch weekly geofencing violations for a specific campus"""
-    today = datetime.utcnow().date()
-    start_of_week = today - timedelta(days=today.weekday())
-
-    offenders = db["attendance"].find({
-        "date": {"$gte": start_of_week, "$lte": today},
-        "total_out_of_bounds_time": {"$gt": 30},
-        "campus_id": campus_id
-    })
+    """Super Admin can view all inventory requests across campuses"""
+    requests = db["inventory_requests"].find()
 
     return [
         {
-            "employee_id": record["user_id"],
-            "name": record.get("name"),
-            "total_out_of_bounds_time": record.get("total_out_of_bounds_time")
+            "id": str(req["_id"]),
+            "item_name": req["item_name"],
+            "requested_by": req["requested_by"],
+            "requested_quantity": req["requested_quantity"],
+            "status": req["status"]
         }
-        for record in offenders
+        for req in requests
     ]
+
+# ------------------------------------------
+# ✅ VIEW CAMPUS INVENTORY (Super Admin)
+# ------------------------------------------
+@router.get("/inventory/campus/{campus_id}", dependencies=[Depends(role_required(["super_admin"]))])
+async def get_inventory_for_campus(
+    campus_id: str, db: MongoClient = Depends(get_mongo_db)
+):
+    """View all inventory items for a specific campus"""
+    inventory = db["inventory"].find({"campus_id": campus_id})
+
+    return [
+        {
+            "id": str(item["_id"]),
+            "name": item["name"],
+            "category": item["category"],
+            "quantity": item["quantity"]
+        }
+        for item in inventory
+    ]
+
+# ------------------------------------------
+# ✅ CCTV CAMERA STREAMING (Super Admin)
+# ------------------------------------------
+@router.get("/cctv/live/{campus_id}")
+async def stream_cctv(
+    campus_id: str, 
+    db: MongoClient = Depends(get_mongo_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Stream live CCTV footage for a specific campus (Super Admin Only)"""
+
+    campus = db["campuses"].find_one({"_id": ObjectId(campus_id)})
+
+    if not campus:
+        raise HTTPException(status_code=404, detail="Campus not found.")
+
+    # Placeholder logic: Replace with actual CCTV streaming URL
+    cctv_stream_url = f"http://cctv.dseu.ac.in/live/{campus_id}"
+    
+    return {"campus": campus["name"], "stream_url": cctv_stream_url}
 
 # ------------------------------------------
 # ✅ VIEW & MANAGE LEAVE REQUESTS (ADMIN-LEVEL ONLY)
@@ -144,63 +252,56 @@ async def reject_leave_request(
     return {"message": f"Leave request rejected. Reason: {reason}"}
 
 # ------------------------------------------
-# ✅ CCTV CAMERA STREAMING (Super Admin)
+# ✅ DAILY GEOFENCING VIOLATION REPORT (CAMPUS-WISE)
 # ------------------------------------------
-@router.get("/cctv/live/{campus_id}")
-async def stream_cctv(
-    campus_id: str, 
-    db: MongoClient = Depends(get_mongo_db),
-    current_user: dict = Depends(get_current_user)
-):
-    """Stream live CCTV footage for a specific campus (Super Admin Only)"""
-
-    campus = db["campuses"].find_one({"_id": ObjectId(campus_id)})
-
-    if not campus:
-        raise HTTPException(status_code=404, detail="Campus not found.")
-
-    # Placeholder logic: Replace with actual CCTV streaming URL
-    cctv_stream_url = f"http://cctv.dseu.ac.in/live/{campus_id}"
-    
-    return {"campus": campus["name"], "stream_url": cctv_stream_url}
-
-# ------------------------------------------
-# ✅ VIEW CAMPUS INVENTORY (Super Admin)
-# ------------------------------------------
-@router.get("/inventory/campus/{campus_id}", dependencies=[Depends(role_required(["super_admin"]))])
-async def get_inventory_for_campus(
-    campus_id: str, db: MongoClient = Depends(get_mongo_db)
-):
-    """View all inventory items for a specific campus"""
-    inventory = db["inventory"].find({"campus_id": campus_id})
-
-    return [
-        {
-            "id": str(item["_id"]),
-            "name": item["name"],
-            "category": item["category"],
-            "quantity": item["quantity"]
-        }
-        for item in inventory
-    ]
-
-# ------------------------------------------
-# ✅ VIEW INVENTORY REQUESTS (Super Admin)
-# ------------------------------------------
-@router.get("/inventory/requests", dependencies=[Depends(role_required(["super_admin"]))])
-async def get_inventory_requests(
+@router.get("/attendance/daily-geofencing/campus/{campus_id}")
+async def daily_geofencing_report(
+    campus_id: str,
     db: MongoClient = Depends(get_mongo_db)
 ):
-    """Super Admin can view all inventory requests across campuses"""
-    requests = db["inventory_requests"].find()
+    """Fetch geofencing violations for today for a specific campus"""
+    today = datetime.utcnow().date()
+
+    offenders = db["attendance"].find({
+        "date": today,
+        "total_out_of_bounds_time": {"$gt": 30},
+        "campus_id": campus_id
+    })
 
     return [
         {
-            "id": str(req["_id"]),
-            "item_name": req["item_name"],
-            "requested_by": req["requested_by"],
-            "requested_quantity": req["requested_quantity"],
-            "status": req["status"]
+            "employee_id": record["user_id"],
+            "name": record.get("name"),
+            "total_out_of_bounds_time": record.get("total_out_of_bounds_time")
         }
-        for req in requests
+        for record in offenders
     ]
+
+# ------------------------------------------
+# ✅ WEEKLY GEOFENCING VIOLATION REPORT (CAMPUS-WISE)
+# ------------------------------------------
+@router.get("/attendance/weekly-geofencing/campus/{campus_id}")
+async def weekly_geofencing_report(
+    campus_id: str,
+    db: MongoClient = Depends(get_mongo_db)
+):
+    """Fetch weekly geofencing violations for a specific campus"""
+    today = datetime.utcnow().date()
+    start_of_week = today - timedelta(days=today.weekday())
+
+    offenders = db["attendance"].find({
+        "date": {"$gte": start_of_week, "$lte": today},
+        "total_out_of_bounds_time": {"$gt": 30},
+        "campus_id": campus_id
+    })
+
+    return [
+        {
+            "employee_id": record["user_id"],
+            "name": record.get("name"),
+            "total_out_of_bounds_time": record.get("total_out_of_bounds_time")
+        }
+        for record in offenders
+    ]
+
+
