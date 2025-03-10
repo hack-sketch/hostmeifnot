@@ -14,32 +14,42 @@ router = APIRouter()
 # ------------------------------------------
 # ✅ VIEW ATTENDANCE (CAMPUS-WISE) 
 # ------------------------------------------
-@router.get("/attendance/campus/{campus_id}", dependencies=[Depends(role_required(["super_admin"]))])
-async def view_campus_attendance(campus_id: str, db: MongoClient = Depends(get_mongo_db)):
+@router.get("/user/{user_id}")
+async def view_user_profile_attendance(user_id: str, db: MongoClient = Depends(get_mongo_db)):
+    """Fetch user profile and attendance records."""
+
+    # Try fetching user by ObjectId first, fallback to employee_id
     try:
-        # ✅ Fetch attendance using correct field
-        attendance_records = list(db["attendance"].find({"punch_in_campus_id": campus_id}))
+        user = db["users"].find_one({"_id": ObjectId(user_id)})
+    except:
+        user = db["users"].find_one({"employee_id": user_id})
 
-        if not attendance_records:
-            raise HTTPException(status_code=404, detail="No attendance records found for this campus")
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
 
-        return [
-            {
-                "employee_id": record.get("employee_id"),  # ✅ FIXED: Correct field
-                "name": record.get("user_full_name", "Unknown"),  # ✅ FIXED: Correct field
-                "profile_picture": record.get("profile_picture", ""),  # ✅ Handle missing values
-                "punch_in": record.get("punch_in", "N/A"),
-                "punch_out": record.get("punch_out", "N/A"),
-                "total_hours": record.get("total_hours", 0),
-                "status": record.get("status", "Unknown")
-            }
-            for record in attendance_records
-        ]
+    # Convert ObjectId to string for JSON serialization
+    user["_id"] = str(user["_id"])
 
-    except Exception as e:
-        print(f"Error fetching attendance: {e}")  # ✅ Logs error for debugging
-        raise HTTPException(status_code=500, detail="Internal Server Error. Check logs.")
+    # Fetch attendance records for the user
+    attendance = list(db["attendance"].find({"employee_id": user["employee_id"]}))
 
+    # Convert ObjectId fields in attendance records to strings
+    for record in attendance:
+        record["_id"] = str(record["_id"])
+
+    return {
+        "profile": {
+            "id": user["_id"],
+            "employee_id": user["employee_id"],
+            "name": user.get("full_name"),
+            "email": user.get("email"),
+            "profile_picture": user.get("profile_picture", ""),
+            "designation": user.get("designation", ""),
+            "campus": user.get("campus", ""),
+        },
+        "attendance": attendance
+    }
+    
 # ------------------------------------------
 # ✅ VIEW USERS (EMPLOYEES) (CAMPUS-WISE)
 # ------------------------------------------
@@ -65,11 +75,17 @@ async def view_campus_users(campus_id: str, db: MongoClient = Depends(get_mongo_
 # ------------------------------------------
 @router.get("/user/{user_id}")
 async def view_user_profile_attendance(user_id: str, db: MongoClient = Depends(get_mongo_db)):
-    user = db["users"].find_one({"_id": ObjectId(user_id)})
-    attendance = db["attendance"].find({"employee_id": user_id})
-    
+    # Check if the user_id is a valid ObjectId
+    try:
+        object_id = ObjectId(user_id)  # Convert if it's an ObjectId
+        user = db["users"].find_one({"_id": object_id})
+    except:
+        user = db["users"].find_one({"employee_id": user_id})  # Query by employee_id if not ObjectId
+
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    attendance = list(db["attendance"].find({"employee_id": user_id}))
 
     return {
         "profile": {
@@ -80,7 +96,7 @@ async def view_user_profile_attendance(user_id: str, db: MongoClient = Depends(g
             "designation": user.get("designation"),
             "campus": user.get("campus")
         },
-        "attendance": list(attendance)
+        "attendance": attendance
     }
 
 # ------------------------------------------
