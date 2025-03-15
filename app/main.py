@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import auth, profile, attendance, admin, super_admin, inventory_admin, sync
+from app.routes import auth, profile, attendance, admin, super_admin, inventory_admin, sync, user
 from .database import get_mongo_db #EpushSessionLocal
 import asyncio
 
@@ -19,6 +19,7 @@ app.add_middleware(
 app.include_router(auth.router, tags=["authentication"])
 app.include_router(profile.router, tags=["profile"])
 app.include_router(attendance.router, tags=["attendance"])
+app.include_router(user.router, prefix="/employee", tags=["user"])
 app.include_router(admin.router, prefix="/admin", tags=["admin"])
 app.include_router(super_admin.router, prefix="/super-admin", tags=["super_admin"])
 app.include_router(inventory_admin.router, prefix="/inventory-admin", tags=["inventory_admin"])

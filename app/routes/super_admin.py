@@ -14,6 +14,35 @@ router = APIRouter()
 # ------------------------------------------
 # ✅ VIEW ATTENDANCE (CAMPUS-WISE) 
 # ------------------------------------------
+@router.get("/attendance/campus/{campus_id}", dependencies=[Depends(role_required(["super_admin"]))])
+async def view_campus_attendance(campus_id: str, db: MongoClient = Depends(get_mongo_db)):
+    try:
+        attendance_records = list(db["attendance"].find({"punch_in_campus_id": campus_id}))
+
+        if not attendance_records:
+            raise HTTPException(status_code=404, detail="No attendance records found for this campus")
+
+        return [
+            {
+                "employee_id": record.get("employee_id"),  
+                "name": record.get("user_full_name", "Unknown"),  
+                "profile_picture": record.get("profile_picture", ""), 
+                "punch_in": record.get("punch_in", "N/A"),
+                "punch_out": record.get("punch_out", "N/A"),
+                "total_hours": record.get("total_hours", 0),
+                "status": record.get("status", "Unknown")
+            }
+            for record in attendance_records
+        ]
+
+    except Exception as e:
+        print(f"Error fetching attendance: {e}") 
+        raise HTTPException(status_code=500, detail="Internal Server Error. Check logs.")
+
+
+# ------------------------------------------
+# ✅ VIEW ATTENDANCE (CAMPUS-WISE) 
+# ------------------------------------------
 @router.get("/user/{user_id}")
 async def view_user_profile_attendance(user_id: str, db: MongoClient = Depends(get_mongo_db)):
     """Fetch user profile and attendance records."""
@@ -184,19 +213,52 @@ async def edit_campus(campus_id: str, name: str = None, description: str = None,
     db["campuses"].update_one({"_id": ObjectId(campus_id)}, {"$set": update_fields})
     return {"message": "Campus updated successfully"}
 
+
 @router.delete("/campus/delete/{campus_id}")
 async def delete_campus(campus_id: str, db: MongoClient = Depends(get_mongo_db)):
     db["campuses"].delete_one({"_id": ObjectId(campus_id)})
     return {"message": "Campus deleted successfully"}
 
 # ------------------------------------------
+# ✅ VIEW ALL CAMPUSES (SUPER ADMIN)
+# ------------------------------------------
+@router.get("/campuses", dependencies=[Depends(role_required(["super_admin"]))])
+async def get_all_campuses(db: MongoClient = Depends(get_mongo_db)):
+    """Fetch all campuses with their details."""
+    
+    campuses = list(db["campuses"].find())
+
+    # Convert ObjectId to string for JSON serialization
+    return [
+        {
+            "campus_id": str(campus["_id"]),
+            "name": campus.get("name"),
+            "description": campus.get("description", ""),
+            "latitude": campus.get("latitude", ""),
+            "longitude": campus.get("longitude", "")
+        }
+        for campus in campuses
+    ]
+
+
+# ------------------------------------------
 # ✅ GET USER BANK DETAILS
 # ------------------------------------------
 @router.get("/user/{user_id}/bank-details")
 async def get_user_bank_details(user_id: str, db: MongoClient = Depends(get_mongo_db)):
-    user = db["users"].find_one({"_id": ObjectId(user_id)})
+    """Fetch the bank details of a specific user"""
+    
+    # Try fetching user by ObjectId, if it's a valid ID
+    try:
+        object_id = ObjectId(user_id)
+        user = db["users"].find_one({"_id": object_id})
+    except:
+        user = db["users"].find_one({"employee_id": user_id})  # Query by employee_id if not ObjectId
+
+    # If user is not found, return error
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
     return {
         "bank_name": user.get("bank_name"),
         "account_number": user.get("account_number"),
