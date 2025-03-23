@@ -50,9 +50,11 @@ class CampusSchema(BaseModel):
     latitude: float
     longitude: float
     zone: Optional[str] = None  
+    geo_boundary: Optional[str] = None  # ✅ Add this line
 
     class Config:
         from_attributes = True
+
 
 # ------------------------------------------
 # ✅ Leave Schema for API Requests

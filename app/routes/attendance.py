@@ -138,9 +138,13 @@ async def track_user_location(
 
         # Calculate total time outside campus
         time_outside = (datetime.utcnow() - attendance.exit_time).total_seconds() / 60  # Convert to minutes
-        if time_outside >= 30:
-            attendance.total_out_of_bounds_time += time_outside
-            attendance.exit_time = datetime.utcnow()  # Reset exit time
+        # if time_outside >= 30:
+        #     attendance.total_out_of_bounds_time += time_outside
+        #     attendance.exit_time = datetime.utcnow()  # Reset exit time
+        # For testing, add time immediately (without waiting 30 min)
+        attendance.total_out_of_bounds_time += 1  # Add 1 minute per out-of-bound ping
+        attendance.exit_time = datetime.utcnow()  # Reset exit time
+
 
     else:
         attendance.exit_time = None  # Reset if user returns inside
@@ -148,7 +152,8 @@ async def track_user_location(
     db.commit()
 
     # 🚨 Notify If Faculty Is Out for More Than 30 Min
-    if attendance.total_out_of_bounds_time > 30:
+    # if attendance.total_out_of_bounds_time > 30:
+    if attendance.total_out_of_bounds_time > 0:
         return {"warning": f"You have been outside the campus for {attendance.total_out_of_bounds_time} minutes today."}
 
     return {"status": "Tracking active"}

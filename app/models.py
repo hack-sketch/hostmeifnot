@@ -81,16 +81,18 @@ class Campus:
     collection = db["campuses"]
 
     @staticmethod
-    def create_campus(name, description, latitude, longitude, zone):
+    def create_campus(name, description, latitude, longitude, zone, geo_boundary=None):
         """Create a new campus with geofence boundaries"""
         new_campus = {
             "name": name,
             "description": description,
             "latitude": latitude,
             "longitude": longitude,
-            "zone": zone  # ✅ Added zone field
+            "zone": zone,
+            "geo_boundary": geo_boundary  # ✅ Add this
         }
         return Campus.collection.insert_one(new_campus).inserted_id
+
 
     @staticmethod
     def get_campus_by_id(campus_id):
