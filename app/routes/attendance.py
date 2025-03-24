@@ -44,7 +44,7 @@ async def punch_in(
                 punch_in=datetime.now(pytz.UTC),
                 punch_in_campus_id=campus.id,
                 status="Present",
-                total_out_of_bounds_time=0,  # Reset out-of-campus tracking
+                total_out_of_bounds_time=0,
                 exit_time=None
             )
             db.add(attendance)
@@ -68,7 +68,6 @@ async def punch_out(
 ):
     today = datetime.now(pytz.UTC).date()
 
-    # Find the user's punch-in record for today
     attendance = db.query(Attendance).filter(
         Attendance.user_id == current_user.id,
         func.date(Attendance.date) == today
@@ -86,7 +85,6 @@ async def punch_out(
             detail="Already punched out today"
         )
 
-    # Identify the campus
     campuses = db.query(Campus).all()
     for campus in campuses:
         if check_within_geofence(latitude, longitude, campus.geo_boundary):
@@ -107,8 +105,7 @@ async def punch_out(
     )
 
 # ------------------------------------------
-# ✅ GEOLOCATION CHECK API (Runs Every 5 Min)
-# ✅ Tracks Faculty If They Leave The Campus
+# ✅ GEOLOCATION CHECK API (Auto Tracks)
 # ------------------------------------------
 @router.post("/attendance/check-location")
 async def track_user_location(
@@ -119,7 +116,6 @@ async def track_user_location(
 ):
     today = datetime.now(pytz.UTC).date()
 
-    # Check for active attendance record
     attendance = db.query(Attendance).filter(
         Attendance.user_id == current_user.id,
         func.date(Attendance.date) == today,
@@ -129,72 +125,59 @@ async def track_user_location(
     if not attendance:
         raise HTTPException(status_code=400, detail="No active punch-in session found.")
 
-    # Identify faculty's campus
     campus = db.query(Campus).filter(Campus.id == attendance.punch_in_campus_id).first()
 
     if not check_within_geofence(latitude, longitude, campus.geo_boundary):
         if attendance.exit_time is None:
-            attendance.exit_time = datetime.utcnow()  # Mark initial exit time
+            attendance.exit_time = datetime.utcnow()
 
-        # Calculate total time outside campus
-        time_outside = (datetime.utcnow() - attendance.exit_time).total_seconds() / 60  # Convert to minutes
-        # if time_outside >= 30:
-        #     attendance.total_out_of_bounds_time += time_outside
-        #     attendance.exit_time = datetime.utcnow()  # Reset exit time
-        # For testing, add time immediately (without waiting 30 min)
-        attendance.total_out_of_bounds_time += 1  # Add 1 minute per out-of-bound ping
-        attendance.exit_time = datetime.utcnow()  # Reset exit time
-
+        time_outside = (datetime.utcnow() - attendance.exit_time).total_seconds() / 60
+        attendance.total_out_of_bounds_time += time_outside
+        attendance.exit_time = datetime.utcnow()
 
     else:
-        attendance.exit_time = None  # Reset if user returns inside
+        attendance.exit_time = None
 
     db.commit()
 
-    # 🚨 Notify If Faculty Is Out for More Than 30 Min
-    # if attendance.total_out_of_bounds_time > 30:
-    if attendance.total_out_of_bounds_time > 0:
-        return {"warning": f"You have been outside the campus for {attendance.total_out_of_bounds_time} minutes today."}
+    if attendance.total_out_of_bounds_time > 30:
+        return {"warning": f"Outside campus for {attendance.total_out_of_bounds_time:.1f} minutes today."}
 
     return {"status": "Tracking active"}
 
 # ------------------------------------------
-# ✅ ADMIN/SUPERADMIN: GET DAILY GEO TRACKING DATA
+# ✅ DAILY GEOFENCE VIOLATION LIST
 # ------------------------------------------
 @router.get("/attendance/daily-geofencing")
 async def daily_geofencing_data(
     db: Session = Depends(get_mongo_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Fetches a list of employees who violated geofencing today."""
     today = datetime.now(pytz.UTC).date()
     query = db.query(Attendance).filter(
         func.date(Attendance.date) == today,
-        Attendance.total_out_of_bounds_time > 30  # Employees who went out for more than 30 mins
+        Attendance.total_out_of_bounds_time > 30
     )
 
-    if current_user.role == "admin":
+    if current_user.role == "super_admin":
         query = query.filter(Attendance.punch_in_campus_id == current_user.campus_id)
 
-    offenders = query.all()
-    
     return [
         {
             "employee_id": record.user_id,
             "name": record.user.full_name,
-            "total_out_of_bounds_time": record.total_out_of_bounds_time
-        } for record in offenders
+            "total_out_of_bounds_time": round(record.total_out_of_bounds_time, 2)
+        } for record in query.all()
     ]
 
 # ------------------------------------------
-# ✅ ADMIN/SUPERADMIN: WEEKLY GEO TRACKING REPORT
+# ✅ WEEKLY GEOFENCE REPORT
 # ------------------------------------------
 @router.get("/attendance/weekly-geofencing")
 async def weekly_geofencing_report(
     db: Session = Depends(get_mongo_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Fetches a weekly report of geofencing violations."""
     today = datetime.now(pytz.UTC).date()
     start_of_week = today - timedelta(days=today.weekday())
 
@@ -204,21 +187,19 @@ async def weekly_geofencing_report(
         Attendance.total_out_of_bounds_time > 30
     )
 
-    if current_user.role == "admin":
+    if current_user.role == "super_admin":
         query = query.filter(Attendance.punch_in_campus_id == current_user.campus_id)
-
-    offenders = query.all()
 
     return [
         {
             "employee_id": record.user_id,
             "name": record.user.full_name,
-            "total_out_of_bounds_time": record.total_out_of_bounds_time
-        } for record in offenders
+            "total_out_of_bounds_time": round(record.total_out_of_bounds_time, 2)
+        } for record in query.all()
     ]
 
 # ------------------------------------------
-# ✅ SUPERADMIN: ISSUE RED NOTICE FOR REPEATED VIOLATIONS
+# ✅ ISSUE RED NOTICE
 # ------------------------------------------
 @router.post("/attendance/red-notice/{user_id}")
 async def issue_red_notice(
@@ -227,21 +208,20 @@ async def issue_red_notice(
     db: Session = Depends(get_mongo_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Issues a red notice if a user repeatedly violates geofencing rules."""
     if current_user.role != "super_admin":
         raise HTTPException(status_code=403, detail="Unauthorized action.")
 
-    user_attendance = db.query(Attendance).filter(
+    violations = db.query(Attendance).filter(
         Attendance.user_id == user_id,
         Attendance.total_out_of_bounds_time > 30
     ).count()
 
-    if user_attendance >= 5:  # If violations occurred for 5+ days
+    if violations >= 5:
         user = db.query(User).filter(User.id == user_id).first()
         if user:
             user.red_notice_issued = True
             user.red_notice_reason = reason
             db.commit()
-            return {"message": f"Red notice issued to {user.full_name} for repeated geofencing violations."}
+            return {"message": f"Red notice issued to {user.full_name}"}
 
     return {"message": "User does not meet red notice criteria yet."}

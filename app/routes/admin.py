@@ -83,59 +83,59 @@ async def download_attendance_report_for_campus(
 # ------------------------------------------
 # ✅ DAILY GEO TRACKING VIOLATION REPORT
 # ------------------------------------------
-@router.get("/attendance/daily-geofencing")
-async def daily_geofencing_data(
-    current_user: dict = Depends(get_current_user),
-    db=Depends(get_mongo_db)
-):
-    """Fetch a list of employees who violated geofencing today in admin's assigned campus."""
-    attendance_collection = db["attendance"]
-    today = datetime.now().date().isoformat()
+# @router.get("/attendance/daily-geofencing")
+# async def daily_geofencing_data(
+#     current_user: dict = Depends(get_current_user),
+#     db=Depends(get_mongo_db)
+# ):
+#     """Fetch a list of employees who violated geofencing today in admin's assigned campus."""
+#     attendance_collection = db["attendance"]
+#     today = datetime.now().date().isoformat()
 
-    offenders = list(attendance_collection.find(
-        {
-            "punch_in_campus_id": current_user["campus_id"],
-            "date": today,
-            "total_out_of_bounds_time": {"$gt": 30}
-        }
-    ))
+#     offenders = list(attendance_collection.find(
+#         {
+#             "punch_in_campus_id": current_user["campus_id"],
+#             "date": today,
+#             "total_out_of_bounds_time": {"$gt": 30}
+#         }
+#     ))
 
-    return [
-        {
-            "employee_id": record.get("employee_id"),
-            "name": record.get("user_full_name"),
-            "total_out_of_bounds_time": record.get("total_out_of_bounds_time")
-        } for record in offenders
-    ]
+#     return [
+#         {
+#             "employee_id": record.get("employee_id"),
+#             "name": record.get("user_full_name"),
+#             "total_out_of_bounds_time": record.get("total_out_of_bounds_time")
+#         } for record in offenders
+#     ]
 
-# ------------------------------------------
-# ✅ WEEKLY GEO TRACKING VIOLATION REPORT
-# ------------------------------------------
-@router.get("/attendance/weekly-geofencing")
-async def weekly_geofencing_report(
-    current_user: dict = Depends(get_current_user),
-    db=Depends(get_mongo_db)
-):
-    """Fetch a weekly report of geofencing violations in admin's assigned campus."""
-    attendance_collection = db["attendance"]
-    today = datetime.now().date()
-    start_of_week = today - timedelta(days=today.weekday())
+# # ------------------------------------------
+# # ✅ WEEKLY GEO TRACKING VIOLATION REPORT
+# # ------------------------------------------
+# @router.get("/attendance/weekly-geofencing")
+# async def weekly_geofencing_report(
+#     current_user: dict = Depends(get_current_user),
+#     db=Depends(get_mongo_db)
+# ):
+#     """Fetch a weekly report of geofencing violations in admin's assigned campus."""
+#     attendance_collection = db["attendance"]
+#     today = datetime.now().date()
+#     start_of_week = today - timedelta(days=today.weekday())
 
-    offenders = list(attendance_collection.find(
-        {
-            "punch_in_campus_id": current_user["campus_id"],
-            "date": {"$gte": start_of_week.isoformat(), "$lte": today.isoformat()},
-            "total_out_of_bounds_time": {"$gt": 30}
-        }
-    ))
+#     offenders = list(attendance_collection.find(
+#         {
+#             "punch_in_campus_id": current_user["campus_id"],
+#             "date": {"$gte": start_of_week.isoformat(), "$lte": today.isoformat()},
+#             "total_out_of_bounds_time": {"$gt": 30}
+#         }
+#     ))
 
-    return [
-        {
-            "employee_id": record.get("employee_id"),
-            "name": record.get("user_full_name"),
-            "total_out_of_bounds_time": record.get("total_out_of_bounds_time")
-        } for record in offenders
-    ]
+#     return [
+#         {
+#             "employee_id": record.get("employee_id"),
+#             "name": record.get("user_full_name"),
+#             "total_out_of_bounds_time": record.get("total_out_of_bounds_time")
+#         } for record in offenders
+#     ]
 
 # ------------------------------------------
 # ✅ MANAGE LEAVE REQUESTS (Approve/Reject)
@@ -198,21 +198,21 @@ async def reject_leave_request(
 # ------------------------------------------
 # ✅ ADMIN: ISSUE RED NOTICE FOR REPEATED GEOFENCE VIOLATIONS
 # ------------------------------------------
-@router.post("/attendance/red-notice/{user_id}")
-async def issue_red_notice(
-    user_id: str, 
-    reason: str, 
-    db=Depends(get_mongo_db), 
-    current_user: dict = Depends(get_current_user)
-):
-    """Issues a red notice if an employee repeatedly violates geofencing rules."""
-    attendance_collection = db["attendance"]
+# @router.post("/attendance/red-notice/{user_id}")
+# async def issue_red_notice(
+#     user_id: str, 
+#     reason: str, 
+#     db=Depends(get_mongo_db), 
+#     current_user: dict = Depends(get_current_user)
+# ):
+#     """Issues a red notice if an employee repeatedly violates geofencing rules."""
+#     attendance_collection = db["attendance"]
 
-    user_attendance = attendance_collection.count_documents(
-        {"employee_id": user_id, "punch_in_campus_id": current_user["campus_id"], "total_out_of_bounds_time": {"$gt": 30}}
-    )
+#     user_attendance = attendance_collection.count_documents(
+#         {"employee_id": user_id, "punch_in_campus_id": current_user["campus_id"], "total_out_of_bounds_time": {"$gt": 30}}
+#     )
 
-    if user_attendance >= 5:
-        return {"message": f"Red notice issued for {user_id} due to repeated geofencing violations."}
+#     if user_attendance >= 5:
+#         return {"message": f"Red notice issued for {user_id} due to repeated geofencing violations."}
 
-    return {"message": "User does not meet red notice criteria yet."}
+#     return {"message": "User does not meet red notice criteria yet."}
